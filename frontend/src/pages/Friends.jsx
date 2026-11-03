@@ -23,6 +23,15 @@ export default function Friends() {
     }
   }
 
+  async function nudge(userId) {
+    try {
+      await api(`/friends/${userId}/nudge`, { method: "POST" });
+    } catch (err) {
+      setMsg(err.message);
+    }
+    load();
+  }
+
   async function act(userId, accept) {
     if (accept) await api(`/friends/${userId}/accept`, { method: "POST" });
     else await api(`/friends/${userId}`, { method: "DELETE" });
@@ -52,11 +61,27 @@ export default function Friends() {
         <h2>Amigos</h2>
         {data.friends.length === 0 && <p className="muted">Nenhum amigo ainda.</p>}
         {data.friends.map((u) => (
-          <div key={u.id} className="row">
-            <span>{u.display_name} <span className="muted">@{u.username}</span></span>
-            <button className="ghost" onClick={() => confirm(`Desfazer amizade com ${u.display_name}?`) && act(u.id, false)}>
-              Remover
-            </button>
+          <div key={u.id} className="stack list-item">
+            <div className="row">
+              <span>{u.display_name} <span className="muted">@{u.username}</span></span>
+              <span className="streak" title="Streak de cada um">🔥 {u.streak}</span>
+            </div>
+            <div className="row">
+              <span className={u.sent_today ? "status-ok" : "status-missing"}>
+                {u.sent_today ? "✓ Já tirou hoje" : "Ainda não tirou hoje"}
+                {" · "}juntos: {u.pair_streak} {u.pair_streak === 1 ? "dia" : "dias"}
+              </span>
+              <span className="row">
+                {!u.sent_today && (
+                  <button className="ghost" disabled={u.nudged_today} onClick={() => nudge(u.id)}>
+                    {u.nudged_today ? "Cutucado" : "Cutucar"}
+                  </button>
+                )}
+                <button className="ghost" onClick={() => confirm(`Desfazer amizade com ${u.display_name}?`) && act(u.id, false)}>
+                  Remover
+                </button>
+              </span>
+            </div>
           </div>
         ))}
         {data.outgoing.map((u) => (

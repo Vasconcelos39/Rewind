@@ -14,7 +14,7 @@ PWA self-hosted para um grupo de amigos tirar **uma selfie por dia** até uma da
 | 1 | Esqueleto, banco, login, admin por CLI | pronta |
 | 2 | Viagens, convites, amizades | pronta |
 | 3 | Câmera com overlay, upload, criptografia em repouso, fotos extras | pronta |
-| 4 | Telas: streak, status do dia, amigos, galeria | — |
+| 4 | Telas: streak, status do dia, amigos, cutucadas, galeria | pronta |
 | 5 | Timelapse com ffmpeg + fila | — |
 | 6 | Backup, deploy, HTTPS | — |
 | 7 | Notificações push | depois |

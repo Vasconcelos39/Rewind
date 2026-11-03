@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from ..config import Settings, now_iso
 from ..deps import (are_friends, current_user, get_conn, get_settings, is_member,
                     public_user, require_member)
+from ..streak import user_streak
+from .photos import photo_out
 
 router = APIRouter(prefix="/api")
 
@@ -73,9 +75,20 @@ def get_trip(trip_id: int, user=Depends(current_user), conn: sqlite3.Connection 
     pending = conn.execute(
         "SELECT u.* FROM trip_invites i JOIN users u ON u.id = i.to_user_id WHERE i.trip_id = ?",
         (trip_id,)).fetchall()
+    today = settings.today().isoformat()
+    in_period = today <= trip["end_date"]
+
+    def member_out(m):
+        # Quem já mandou hoje, a streak e a selfie de hoje (se o dia está no período da viagem).
+        selfie = conn.execute("SELECT * FROM photos WHERE user_id = ? AND kind = 'selfie' AND day = ?",
+                              (m["id"], today)).fetchone()
+        return {**public_user(m), "joined_day": m["joined_day"],
+                **user_streak(conn, settings, m["id"]),
+                "today_photo": photo_out(selfie) if selfie and in_period else None}
+
     return {
         **_trip_out(conn, trip, settings),
-        "members": [{**public_user(m), "joined_day": m["joined_day"]} for m in members],
+        "members": [member_out(m) for m in members],
         "pending_invites": [public_user(u) for u in pending],
     }
 

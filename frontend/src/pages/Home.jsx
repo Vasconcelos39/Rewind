@@ -7,9 +7,15 @@ export default function Home({ user }) {
   const [trips, setTrips] = useState([]);
   const [invites, setInvites] = useState([]);
   const [today, setToday] = useState(null);
+  const [summary, setSummary] = useState(null);
 
   function load() {
     api("/photos/today").then(setToday);
+    api("/today").then((s) => {
+      setSummary(s);
+      // Viu as cutucadas: marca como vistas (elas continuam aparecendo hoje).
+      if (s.nudges.some((n) => !n.seen)) api("/today/nudges/seen", { method: "POST" });
+    });
     api("/trips").then(setTrips);
     api("/trip-invites").then(setInvites);
   }
@@ -30,8 +36,26 @@ export default function Home({ user }) {
       <Nav />
       <h2>Olá, {user.display_name}!</h2>
 
+      {summary && !summary.sent_today && summary.nudges.length > 0 && (
+        <section className="card nudge" role="status">
+          {summary.nudges.map((n) => n.from.display_name).join(", ")} te cutucou!
+          Faltam {formatLeft(summary.seconds_left)} pra tirar a foto.
+        </section>
+      )}
+
       <section className="card stack">
-        <h2>Foto de hoje</h2>
+        <div className="row">
+          <h2>Foto de hoje</h2>
+          {summary && (
+            <span className={summary.sent_today ? "streak" : "streak at-risk"}
+              title={summary.sent_today ? "Streak garantida hoje" : "Tire a foto pra não perder a streak"}>
+              🔥 {summary.streak}
+            </span>
+          )}
+        </div>
+        {summary && !summary.sent_today && (
+          <p className="muted">Faltam {formatLeft(summary.seconds_left)} pro dia acabar.</p>
+        )}
         {today?.selfie ? (
           <>
             <img className="thumb-large" src={today.selfie.url} alt="Sua selfie de hoje" />
@@ -96,4 +120,10 @@ function NewTrip({ onCreated }) {
       <button>Criar</button>
     </form>
   );
+}
+
+function formatLeft(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return h > 0 ? `${h}h${String(m).padStart(2, "0")}` : `${m} min`;
 }

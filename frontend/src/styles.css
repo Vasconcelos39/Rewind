@@ -125,3 +125,13 @@ input[type="range"] { padding: 0; accent-color: var(--accent); }
 .thumb-large { width: 100%; max-width: 240px; border-radius: var(--radius-small); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
 .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-small); }
+
+.streak { font-weight: 700; color: var(--accent); }
+.streak.at-risk { color: var(--muted); }
+.nudge { border-color: var(--accent); color: var(--accent); }
+.status-ok { color: var(--success); }
+.status-missing { color: var(--muted); }
+.avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: var(--border); flex: none; }
+.member { display: flex; align-items: center; gap: 12px; }
+.gallery-day { display: flex; flex-direction: column; gap: 8px; }
+select { font: inherit; font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-small); padding: 10px; }

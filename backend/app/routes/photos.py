@@ -132,6 +132,43 @@ def list_extras(trip_id: int, day: str | None = None, user=Depends(current_user)
     return [photo_out(p) for p in rows]
 
 
+# --- Galeria da viagem ---------------------------------------------------------------
+
+# As selfies que pertencem à viagem: de cada membro, do dia em que entrou até a data final.
+_TRIP_SELFIES = (
+    "SELECT p.* FROM photos p"
+    " JOIN trip_members m ON m.user_id = p.user_id AND m.trip_id = :trip"
+    " JOIN trips t ON t.id = m.trip_id"
+    " WHERE p.kind = 'selfie' AND p.day BETWEEN m.joined_day AND t.end_date"
+)
+_TRIP_EXTRAS = "SELECT p.* FROM photos p WHERE p.kind = 'extra' AND p.trip_id = :trip"
+
+
+@router.get("/trips/{trip_id}/gallery")
+def gallery(trip_id: int, before: str | None = None, days: int = 14, user_id: int | None = None,
+            user=Depends(current_user), conn: sqlite3.Connection = Depends(get_conn)):
+    """Fotos da viagem agrupadas por dia, do mais novo pro mais antigo, aos poucos.
+
+    `before`: pega os dias anteriores a esse (pra carregar mais). `user_id`: só de uma pessoa.
+    """
+    require_member(conn, trip_id, user["id"])
+    params = {"trip": trip_id, "before": before or "9999-12-31", "who": user_id}
+    filters = " AND p.day < :before AND (:who IS NULL OR p.user_id = :who)"
+    union = f"{_TRIP_SELFIES}{filters} UNION ALL {_TRIP_EXTRAS}{filters}"
+    day_list = [r[0] for r in conn.execute(
+        f"SELECT DISTINCT day FROM ({union}) ORDER BY day DESC LIMIT :n",
+        {**params, "n": max(1, min(days, 60))})]
+    if not day_list:
+        return {"days": [], "next_before": None}
+
+    rows = conn.execute(f"SELECT * FROM ({union}) WHERE day >= :oldest ORDER BY created_at",
+                        {**params, "oldest": day_list[-1]}).fetchall()
+    grouped = {d: {"day": d, "selfies": [], "extras": []} for d in day_list}
+    for p in rows:
+        grouped[p["day"]]["selfies" if p["kind"] == "selfie" else "extras"].append(photo_out(p))
+    return {"days": list(grouped.values()), "next_before": day_list[-1]}
+
+
 # --- Ler e apagar --------------------------------------------------------------------
 
 @router.get("/photos/{photo_id}")

@@ -5,8 +5,9 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from ..config import now_iso
-from ..deps import current_user, get_conn, public_user
+from ..config import Settings, now_iso
+from ..deps import current_user, get_conn, get_settings, public_user
+from ..streak import count_streak, selfie_days
 
 router = APIRouter(prefix="/api/friends")
 
@@ -36,7 +37,12 @@ def make_friends(conn: sqlite3.Connection, a: int, b: int) -> None:
 
 
 @router.get("")
-def list_friends(user=Depends(current_user), conn: sqlite3.Connection = Depends(get_conn)):
+def list_friends(user=Depends(current_user), conn: sqlite3.Connection = Depends(get_conn),
+                 settings: Settings = Depends(get_settings)):
+    day = settings.today().isoformat()
+    my_days = selfie_days(conn, user["id"])
+    nudged = {r[0] for r in conn.execute(
+        "SELECT to_user_id FROM nudges WHERE from_user_id = ? AND day = ?", (user["id"], day))}
     rows = conn.execute(
         "SELECT f.status, f.requester_id, u.* FROM friendships f"
         " JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END"
@@ -46,7 +52,15 @@ def list_friends(user=Depends(current_user), conn: sqlite3.Connection = Depends(
     out = {"friends": [], "incoming": [], "outgoing": []}
     for r in rows:
         if r["status"] == "accepted":
-            out["friends"].append(public_user(r))
+            # Amigo vê só o status do dia e a streak; as fotos ficam nas viagens.
+            days = selfie_days(conn, r["id"])
+            out["friends"].append({
+                **public_user(r),
+                "sent_today": settings.today() in days,
+                "streak": count_streak(days, settings.today()),
+                "pair_streak": count_streak(days & my_days, settings.today()),
+                "nudged_today": r["id"] in nudged,
+            })
         elif r["requester_id"] == user["id"]:
             out["outgoing"].append(public_user(r))
         else:

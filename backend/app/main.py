@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import crypto, db
 from .config import Settings
 from .ratelimit import RateLimiter
-from .routes import auth, friends, invites, photos, trips
+from .routes import auth, daily, friends, invites, photos, trips
 from .storage import Storage
 
 
@@ -60,7 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health():
         return {"ok": True}
 
-    for module in (auth, friends, trips, invites, photos):
+    for module in (auth, friends, trips, invites, photos, daily):
         app.include_router(module.router)
 
     @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])

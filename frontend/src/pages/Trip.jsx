@@ -4,6 +4,7 @@ import { navigate } from "../router.jsx";
 import Nav from "../components/Nav.jsx";
 import InviteLink from "../components/InviteLink.jsx";
 import Extras from "../components/Extras.jsx";
+import Gallery from "../components/Gallery.jsx";
 
 export default function Trip({ id }) {
   const [trip, setTrip] = useState(null);
@@ -41,13 +42,27 @@ export default function Trip({ id }) {
         <p className="muted">Faltam {trip.days_left} dias ({trip.end_date})</p>
       </section>
 
-      <Extras tripId={id} />
-
       <section className="card stack">
-        <h2>Pessoas</h2>
-        {trip.members.map((m) => <div key={m.id}>{m.display_name}</div>)}
+        <h2>Hoje: {trip.members.filter((m) => m.sent_today).length} de {trip.members.length}</h2>
+        {trip.members.map((m) => (
+          <div key={m.id} className="member">
+            {m.today_photo
+              ? <img className="avatar" src={m.today_photo.url} alt="" />
+              : <span className="avatar" />}
+            <span className="stack" style={{ gap: 0 }}>
+              <span>{m.display_name} <span className="streak">🔥 {m.streak}</span></span>
+              <span className={m.sent_today ? "status-ok small" : "status-missing small"}>
+                {m.sent_today ? "✓ Já tirou" : "Falta tirar"}
+              </span>
+            </span>
+          </div>
+        ))}
         {trip.pending_invites.map((u) => <div key={u.id} className="muted">{u.display_name}: convidado</div>)}
       </section>
+
+      <Extras tripId={id} />
+
+      <Gallery tripId={id} members={trip.members} />
 
       <section className="card stack">
         <h2>Convidar</h2>
