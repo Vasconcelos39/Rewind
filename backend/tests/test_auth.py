@@ -5,7 +5,8 @@ from fastapi.testclient import TestClient
 
 from app import cli
 from app.config import Settings
-from app.main import COOKIE_NAME, create_app
+from app.deps import COOKIE_NAME
+from app.main import create_app
 
 
 def test_migrations_set_version(conn):
@@ -114,3 +115,15 @@ def test_cli_create_admin(tmp_path, monkeypatch, capsys):
     app = create_app(Settings(data_dir=tmp_path, cookie_secure=False))
     r = TestClient(app).post("/api/auth/login", json={"username": "bia", "password": "senha-forte-1"})
     assert r.status_code == 200 and r.json()["is_admin"]
+
+
+def test_connection_works_across_threads(settings, client):
+    # O FastAPI abre a conexão numa thread e pode usá-la em outra.
+    import threading
+    from app import db
+    c = db.connect(settings.db_path)
+    errors = []
+    t = threading.Thread(target=lambda: errors.extend([]) if c.execute("SELECT 1").fetchone() else None)
+    t.start(); t.join()
+    c.close()
+    assert errors == []

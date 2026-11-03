@@ -12,7 +12,9 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path, timeout=10)
+    # O FastAPI pode abrir a conexão numa thread e usar em outra (sempre uma de cada vez).
+    # Cada pedido tem a sua conexão, então desligar a checagem de thread é seguro.
+    conn = sqlite3.connect(db_path, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row  # linhas acessíveis por nome: row["username"]
     conn.execute("PRAGMA foreign_keys = ON")  # o SQLite vem com isso desligado
     conn.execute("PRAGMA journal_mode = WAL")  # leituras não esperam escritas

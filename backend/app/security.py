@@ -49,6 +49,7 @@ def create_user(
     password: str,
     display_name: str | None = None,
     is_admin: bool = False,
+    commit: bool = True,
 ) -> int:
     validate_username(username)
     validate_password(password)
@@ -61,7 +62,8 @@ def create_user(
         )
     except sqlite3.IntegrityError:
         raise InvalidInput("Esse usuário já existe")
-    conn.commit()
+    if commit:
+        conn.commit()
     return cur.lastrowid
 
 
@@ -92,7 +94,7 @@ def set_password(conn: sqlite3.Connection, user_id: int, password: str) -> None:
 
 # --- Sessões -----------------------------------------------------------------
 
-def _token_hash(token: str) -> str:
+def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
@@ -103,7 +105,7 @@ def create_session(conn: sqlite3.Connection, user_id: int, days: int) -> str:
     conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now_iso(),))  # faxina
     conn.execute(
         "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-        (_token_hash(token), user_id, now_iso(), expires.isoformat(timespec="seconds")),
+        (token_hash(token), user_id, now_iso(), expires.isoformat(timespec="seconds")),
     )
     conn.commit()
     return token
@@ -115,16 +117,16 @@ def user_from_session(conn: sqlite3.Connection, token: str | None) -> sqlite3.Ro
     return conn.execute(
         "SELECT users.* FROM sessions JOIN users ON users.id = sessions.user_id"
         " WHERE sessions.token_hash = ? AND sessions.expires_at > ?",
-        (_token_hash(token), now_iso()),
+        (token_hash(token), now_iso()),
     ).fetchone()
 
 
 def delete_session(conn: sqlite3.Connection, token: str) -> None:
-    conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_token_hash(token),))
+    conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash(token),))
     conn.commit()
 
 
 def delete_other_sessions(conn: sqlite3.Connection, user_id: int, keep_token: str | None) -> None:
     conn.execute("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?",
-                 (user_id, _token_hash(keep_token or "")))
+                 (user_id, token_hash(keep_token or "")))
     conn.commit()

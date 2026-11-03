@@ -1,64 +1,85 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { Link, navigate } from "../router.jsx";
+import Nav from "../components/Nav.jsx";
 
-export default function Home({ user, onLogout }) {
-  async function logout() {
-    await api("/auth/logout", { method: "POST" }).catch(() => {});
-    onLogout();
+export default function Home({ user }) {
+  const [trips, setTrips] = useState([]);
+  const [invites, setInvites] = useState([]);
+
+  function load() {
+    api("/trips").then(setTrips);
+    api("/trip-invites").then(setInvites);
+  }
+  useEffect(load, []);
+
+  async function respond(invite, accept) {
+    if (accept) {
+      const { trip_id } = await api(`/trip-invites/${invite.id}/accept`, { method: "POST" });
+      navigate(`/viagem/${trip_id}`);
+    } else {
+      await api(`/trip-invites/${invite.id}`, { method: "DELETE" });
+      load();
+    }
   }
 
   return (
     <main className="page stack">
-      <header className="row">
-        <h1 className="brand">Rewind</h1>
-        <button className="ghost" onClick={logout}>Sair</button>
-      </header>
+      <Nav />
+      <h2>Olá, {user.display_name}!</h2>
+
+      {invites.length > 0 && (
+        <section className="card stack">
+          <h2>Convites</h2>
+          {invites.map((i) => (
+            <div key={i.id} className="row">
+              <span>{i.from.display_name} te chamou para <b>{i.trip_name}</b></span>
+              <span className="row">
+                <button onClick={() => respond(i, true)}>Entrar</button>
+                <button className="ghost" onClick={() => respond(i, false)}>Recusar</button>
+              </span>
+            </div>
+          ))}
+        </section>
+      )}
+
       <section className="card stack">
-        <h2>Olá, {user.display_name}!</h2>
-        <p className="muted">
-          Fase 1: login funcionando. Viagens, câmera e streak chegam nas próximas fases.
-        </p>
+        <h2>Suas viagens</h2>
+        {trips.length === 0 && <p className="muted">Nenhuma viagem ainda.</p>}
+        {trips.map((t) => (
+          <Link key={t.id} to={`/viagem/${t.id}`} className="row list-item">
+            <span>{t.name}</span>
+            <span className="muted">{t.days_left} dias · {t.member_count} pessoas</span>
+          </Link>
+        ))}
       </section>
-      <ChangePassword />
+
+      <NewTrip onCreated={(t) => navigate(`/viagem/${t.id}`)} />
     </main>
   );
 }
 
-function ChangePassword() {
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [msg, setMsg] = useState(null);
+function NewTrip({ onCreated }) {
+  const [name, setName] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [error, setError] = useState("");
 
   async function submit(e) {
     e.preventDefault();
     try {
-      await api("/auth/password", {
-        method: "POST",
-        body: { current_password: current, new_password: next },
-      });
-      setMsg({ ok: true, text: "Senha trocada. Os outros aparelhos foram desconectados." });
-      setCurrent("");
-      setNext("");
+      onCreated(await api("/trips", { method: "POST", body: { name, end_date: endDate } }));
     } catch (err) {
-      setMsg({ ok: false, text: err.message });
+      setError(err.message);
     }
   }
 
   return (
     <form className="card stack" onSubmit={submit}>
-      <h2>Trocar senha</h2>
-      <label>
-        Senha atual
-        <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)}
-          autoComplete="current-password" required />
-      </label>
-      <label>
-        Senha nova (mínimo 8 caracteres)
-        <input type="password" value={next} onChange={(e) => setNext(e.target.value)}
-          autoComplete="new-password" minLength={8} required />
-      </label>
-      {msg && <p className={msg.ok ? "success" : "error"} role="status">{msg.text}</p>}
-      <button>Salvar</button>
+      <h2>Nova viagem</h2>
+      <label>Nome<input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required /></label>
+      <label>Data final (a meta)<input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required /></label>
+      {error && <p className="error">{error}</p>}
+      <button>Criar</button>
     </form>
   );
 }

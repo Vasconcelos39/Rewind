@@ -1,39 +1,14 @@
 """API do Rewind (FastAPI). Rode com: uvicorn app.main:create_app --factory"""
 
-import sqlite3
-from pathlib import Path
-from typing import Iterator
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
 
-from . import db, security
+from . import db
 from .config import Settings
 from .ratelimit import RateLimiter
-
-COOKIE_NAME = "rewind_session"
-
-
-class LoginIn(BaseModel):
-    username: str
-    password: str
-
-
-class PasswordIn(BaseModel):
-    current_password: str
-    new_password: str
-
-
-def user_out(user: sqlite3.Row) -> dict:
-    # Só o que o front precisa; o hash da senha nunca sai daqui.
-    return {
-        "id": user["id"],
-        "username": user["username"],
-        "display_name": user["display_name"],
-        "is_admin": bool(user["is_admin"]),
-    }
+from .routes import auth, friends, invites, trips
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -42,24 +17,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Rewind", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.settings = settings
-    # Login: no máximo 20 tentativas por IP e 5 erros por usuário a cada 15 minutos.
-    login_ip_limit = RateLimiter(20, 15 * 60)
-    login_user_limit = RateLimiter(5, 15 * 60)
-
-    # --- Dependências: cada rota pede o que precisa ---------------------------
-
-    def get_conn() -> Iterator[sqlite3.Connection]:
-        conn = db.connect(settings.db_path)
-        try:
-            yield conn
-        finally:
-            conn.close()
-
-    def current_user(request: Request, conn: sqlite3.Connection = Depends(get_conn)) -> sqlite3.Row:
-        user = security.user_from_session(conn, request.cookies.get(COOKIE_NAME))
-        if user is None:
-            raise HTTPException(401, "Faça login")
-        return user
+    app.state.limits = {
+        # Login: 20 tentativas por IP e 5 erros por usuário a cada 15 minutos.
+        "login_ip": RateLimiter(20, 15 * 60),
+        "login_user": RateLimiter(5, 15 * 60),
+        # Links de convite: 30 consultas/usos por IP a cada 15 minutos.
+        "invite_ip": RateLimiter(30, 15 * 60),
+    }
 
     # --- Proteções que valem pra todas as rotas -------------------------------
 
@@ -83,65 +47,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response.headers["Cache-Control"] = "no-store"
         return response
 
-    # --- Rotas de autenticação ------------------------------------------------
+    # --- API ------------------------------------------------------------------
 
     @app.get("/api/health")
     def health():
         return {"ok": True}
 
-    @app.post("/api/auth/login")
-    def login(body: LoginIn, request: Request, response: Response,
-              conn: sqlite3.Connection = Depends(get_conn)):
-        ip = request.client.host if request.client else "?"
-        user_key = body.username.lower()
-        if login_ip_limit.blocked(ip) or login_user_limit.blocked(user_key):
-            raise HTTPException(429, "Muitas tentativas. Espere alguns minutos.")
-        login_ip_limit.hit(ip)
-
-        user = security.authenticate(conn, body.username, body.password)
-        if user is None:
-            login_user_limit.hit(user_key)
-            # Mesma mensagem pra usuário inexistente e senha errada.
-            raise HTTPException(401, "Usuário ou senha incorretos")
-        login_user_limit.reset(user_key)
-
-        token = security.create_session(conn, user["id"], settings.session_days)
-        response.set_cookie(
-            COOKIE_NAME,
-            token,
-            max_age=settings.session_days * 86400,
-            httponly=True,                  # o JavaScript da página não lê o cookie
-            secure=settings.cookie_secure,  # só viaja por HTTPS
-            samesite="lax",                 # não vai junto em POST vindo de outro site
-            path="/",
-        )
-        return user_out(user)
-
-    @app.post("/api/auth/logout")
-    def logout(request: Request, response: Response, conn: sqlite3.Connection = Depends(get_conn)):
-        token = request.cookies.get(COOKIE_NAME)
-        if token:
-            security.delete_session(conn, token)
-        response.delete_cookie(COOKIE_NAME, path="/")
-        return {"ok": True}
-
-    @app.get("/api/auth/me")
-    def me(user: sqlite3.Row = Depends(current_user)):
-        return user_out(user)
-
-    @app.post("/api/auth/password")
-    def change_password(body: PasswordIn, request: Request,
-                        user: sqlite3.Row = Depends(current_user),
-                        conn: sqlite3.Connection = Depends(get_conn)):
-        if security.authenticate(conn, user["username"], body.current_password) is None:
-            raise HTTPException(400, "Senha atual incorreta")
-        try:
-            security.set_password(conn, user["id"], body.new_password)
-        except security.InvalidInput as e:
-            raise HTTPException(400, str(e))
-        # Trocou a senha: derruba as sessões dos outros aparelhos.
-        security.delete_other_sessions(conn, user["id"], request.cookies.get(COOKIE_NAME))
-        return {"ok": True}
+    for module in (auth, friends, trips, invites):
+        app.include_router(module.router)
 
     @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     def api_not_found(rest: str):
