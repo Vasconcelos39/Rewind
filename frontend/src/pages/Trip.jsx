@@ -5,6 +5,7 @@ import Nav from "../components/Nav.jsx";
 import InviteLink from "../components/InviteLink.jsx";
 import Extras from "../components/Extras.jsx";
 import Gallery from "../components/Gallery.jsx";
+import Timelapses from "../components/Timelapses.jsx";
 
 export default function Trip({ id }) {
   const [trip, setTrip] = useState(null);
@@ -63,6 +64,8 @@ export default function Trip({ id }) {
       <Extras tripId={id} />
 
       <Gallery tripId={id} members={trip.members} />
+
+      <Timelapses tripId={id} members={trip.members} />
 
       <section className="card stack">
         <h2>Convidar</h2>

@@ -157,7 +157,9 @@ def leave_trip(trip_id: int, request: Request, user=Depends(current_user),
     files = []
     if left == 0:
         files = [r[0] for r in conn.execute(
-            "SELECT file_name FROM photos WHERE trip_id = ?", (trip_id,))]
+            "SELECT file_name FROM photos WHERE trip_id = ?"
+            " UNION ALL SELECT file_name FROM timelapses WHERE trip_id = ? AND file_name IS NOT NULL",
+            (trip_id, trip_id))]
         conn.execute("DELETE FROM trips WHERE id = ?", (trip_id,))  # as linhas das fotos vão junto
     conn.commit()
     for name in files:  # e os arquivos também, depois que o banco confirmou

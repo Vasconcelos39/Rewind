@@ -135,3 +135,5 @@ input[type="range"] { padding: 0; accent-color: var(--accent); }
 .member { display: flex; align-items: center; gap: 12px; }
 .gallery-day { display: flex; flex-direction: column; gap: 8px; }
 select { font: inherit; font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-small); padding: 10px; }
+progress { width: 100%; accent-color: var(--accent); }
+.timelapse { width: 100%; max-width: 360px; border-radius: var(--radius-small); background: #000; }

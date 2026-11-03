@@ -1,6 +1,7 @@
 """Configuração lida das variáveis de ambiente (veja .env.example)."""
 
 import os
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -24,6 +25,11 @@ class Settings:
     key_file: Path = BACKEND_DIR / "rewind.key"
     max_upload_mb: int = 10
     extras_per_day: int = 10
+    # Timelapse
+    ffmpeg: str = "ffmpeg"
+    default_fps: int = 8
+    # Onde as fotos ficam abertas enquanto o ffmpeg trabalha. No Docker, um tmpfs (RAM).
+    tmp_dir: Path = Path(tempfile.gettempdir()) / "rewind"
 
     @property
     def db_path(self) -> Path:
@@ -54,6 +60,9 @@ class Settings:
             key_file=Path(os.environ.get("REWIND_KEY_FILE", BACKEND_DIR / "rewind.key")),
             max_upload_mb=int(os.environ.get("REWIND_MAX_UPLOAD_MB", "10")),
             extras_per_day=int(os.environ.get("REWIND_EXTRAS_PER_DAY", "10")),
+            ffmpeg=os.environ.get("REWIND_FFMPEG", "ffmpeg"),
+            default_fps=int(os.environ.get("REWIND_FPS", "8")),
+            tmp_dir=Path(os.environ.get("REWIND_TMP_DIR", Path(tempfile.gettempdir()) / "rewind")),
         )
 
 

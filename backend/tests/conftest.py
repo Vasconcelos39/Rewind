@@ -12,7 +12,7 @@ def settings(tmp_path):
     crypto.generate_key_file(key)
     # TestClient fala HTTP puro, então o cookie não pode exigir HTTPS aqui.
     return Settings(data_dir=tmp_path / "dados", cookie_secure=False,
-                    frontend_dist=tmp_path / "dist", key_file=key)
+                    frontend_dist=tmp_path / "dist", key_file=key, tmp_dir=tmp_path / "tmp")
 
 
 @pytest.fixture

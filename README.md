@@ -15,13 +15,13 @@ PWA self-hosted para um grupo de amigos tirar **uma selfie por dia** até uma da
 | 2 | Viagens, convites, amizades | pronta |
 | 3 | Câmera com overlay, upload, criptografia em repouso, fotos extras | pronta |
 | 4 | Telas: streak, status do dia, amigos, cutucadas, galeria | pronta |
-| 5 | Timelapse com ffmpeg + fila | — |
+| 5 | Timelapse com ffmpeg + fila | pronta |
 | 6 | Backup, deploy, HTTPS | — |
 | 7 | Notificações push | depois |
 
 ## Rodando no PC (desenvolvimento)
 
-Requisitos: Python 3.13 e Node 20+.
+Requisitos: Python 3.13, Node 20+ e ffmpeg (no `PATH`, ou em `REWIND_FFMPEG`).
 
 ```bash
 # Backend
@@ -89,3 +89,18 @@ A prévia aparece espelhada, como um espelho, porque é assim que a gente se arr
 foto **salva** não é espelhada: é a imagem real da câmera, como os outros te veem. Ela
 sai igual todos os dias, e o timelapse não "pula" de lado. A foto de ontem, que aparece
 por cima pra alinhar o rosto, também é espelhada só na tela, pra bater com a prévia.
+
+## Timelapse
+
+- Qualquer membro da viagem pede o timelapse de qualquer pessoa dela. O vídeo usa as
+  selfies do período da viagem, a 8 fotos/s (dá pra escolher 4, 8, 12 ou 24).
+- O pedido entra numa **fila**, e uma única thread faz **um vídeo por vez**, pra não
+  travar o Orange Pi. A tela mostra a posição na fila e o progresso, que vem do próprio
+  ffmpeg (`-progress`).
+- **Cache:** cada vídeo guarda uma "impressão digital" das fotos usadas. Pedir de novo
+  sem foto nova devolve o vídeo pronto; com foto nova, o antigo é apagado e um novo
+  entra na fila.
+- As fotos são descriptografadas numa pasta temporária (`REWIND_TMP_DIR`, um tmpfs no
+  Docker) e **apagadas logo depois**, mesmo se o ffmpeg der erro. O vídeo pronto também
+  fica criptografado no disco.
+- Se o servidor reiniciar no meio de um vídeo, ele volta pra fila.
