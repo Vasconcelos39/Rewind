@@ -1,0 +1,5 @@
+fastapi==0.115.6
+uvicorn==0.34.0
+argon2-cffi==23.1.0
+# Fusos horários no Windows (no Linux o sistema já tem, mas não atrapalha)
+tzdata==2024.2
