@@ -123,7 +123,15 @@ def test_connection_works_across_threads(settings, client):
     from app import db
     c = db.connect(settings.db_path)
     errors = []
-    t = threading.Thread(target=lambda: errors.extend([]) if c.execute("SELECT 1").fetchone() else None)
-    t.start(); t.join()
+
+    def use():
+        try:
+            c.execute("SELECT 1").fetchone()
+        except Exception as e:
+            errors.append(e)
+
+    t = threading.Thread(target=use)
+    t.start()
+    t.join()
     c.close()
     assert errors == []
