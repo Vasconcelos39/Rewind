@@ -1,0 +1,164 @@
+"""Upload e leitura de fotos. Toda foto passa por aqui: nunca existe link direto pro arquivo."""
+
+import sqlite3
+
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi.responses import Response
+
+from .. import images
+from ..config import Settings, now_iso
+from ..deps import current_user, get_conn, get_settings, require_member
+
+router = APIRouter(prefix="/api")
+
+
+def photo_out(p: sqlite3.Row) -> dict:
+    return {"id": p["id"], "user_id": p["user_id"], "day": p["day"], "kind": p["kind"],
+            "trip_id": p["trip_id"], "width": p["width"], "height": p["height"],
+            "url": f"/api/photos/{p['id']}"}
+
+
+async def _read_upload(file: UploadFile, settings: Settings) -> images.Processed:
+    limit = settings.max_upload_mb * 1024 * 1024
+    raw = await file.read(limit + 1)  # lê no máximo 1 byte além do limite
+    if len(raw) > limit:
+        raise HTTPException(413, f"Imagem maior que {settings.max_upload_mb} MB")
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(400, "Envie uma imagem")
+    try:
+        return images.process(raw)  # o tipo de verdade é conferido aqui, pelo conteúdo
+    except images.BadImage as e:
+        raise HTTPException(400, str(e))
+
+
+def _insert(conn, storage, user_id, day, kind, trip_id, img: images.Processed) -> sqlite3.Row:
+    name = storage.save(img.data)
+    try:
+        cur = conn.execute(
+            "INSERT INTO photos (user_id, day, kind, trip_id, file_name, width, height, size_bytes, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, day, kind, trip_id, name, img.width, img.height, len(img.data), now_iso()))
+    except Exception:
+        storage.delete(name)  # banco falhou: não deixa arquivo órfão
+        raise
+    return conn.execute("SELECT * FROM photos WHERE id = ?", (cur.lastrowid,)).fetchone()
+
+
+def can_view(conn: sqlite3.Connection, viewer_id: int, photo: sqlite3.Row) -> bool:
+    """A regra de quem vê o quê. Toda foto servida passa por aqui."""
+    if photo["user_id"] == viewer_id:
+        return True
+    if photo["kind"] == "extra":
+        # Foto extra: qualquer membro da viagem onde ela foi publicada.
+        return conn.execute("SELECT 1 FROM trip_members WHERE trip_id = ? AND user_id = ?",
+                            (photo["trip_id"], viewer_id)).fetchone() is not None
+    # Selfie: você e o dono estão numa mesma viagem, e o dia da foto está no período
+    # dela (do dia em que o dono entrou até a data final). Amigo fora da viagem não vê.
+    return conn.execute(
+        "SELECT 1 FROM trip_members owner"
+        " JOIN trip_members viewer ON viewer.trip_id = owner.trip_id AND viewer.user_id = ?"
+        " JOIN trips t ON t.id = owner.trip_id"
+        " WHERE owner.user_id = ? AND ? BETWEEN owner.joined_day AND t.end_date",
+        (viewer_id, photo["user_id"], photo["day"])).fetchone() is not None
+
+
+# --- Selfie do dia ---------------------------------------------------------------
+
+@router.get("/photos/today")
+def today(user=Depends(current_user), conn: sqlite3.Connection = Depends(get_conn),
+          settings: Settings = Depends(get_settings)):
+    """A selfie de hoje (se já tirou) e a anterior, que aparece por cima da câmera."""
+    day = settings.today().isoformat()
+    mine = conn.execute("SELECT * FROM photos WHERE user_id = ? AND kind = 'selfie' AND day = ?",
+                        (user["id"], day)).fetchone()
+    prev = conn.execute(
+        "SELECT * FROM photos WHERE user_id = ? AND kind = 'selfie' AND day < ? ORDER BY day DESC LIMIT 1",
+        (user["id"], day)).fetchone()
+    return {"day": day, "selfie": photo_out(mine) if mine else None,
+            "previous": photo_out(prev) if prev else None}
+
+
+@router.post("/photos/selfie")
+async def upload_selfie(file: UploadFile, request: Request, user=Depends(current_user),
+                        conn: sqlite3.Connection = Depends(get_conn),
+                        settings: Settings = Depends(get_settings)):
+    img = await _read_upload(file, settings)
+    storage = request.app.state.storage
+    # O dia é o do servidor: mudar o relógio do celular não muda nada.
+    day = settings.today().isoformat()
+    old = conn.execute("SELECT * FROM photos WHERE user_id = ? AND kind = 'selfie' AND day = ?",
+                       (user["id"], day)).fetchone()
+    if old:
+        # Substituir enquanto o dia não acabou: sai a antiga, entra a nova (com id novo,
+        # assim o navegador não mostra a antiga do cache).
+        conn.execute("DELETE FROM photos WHERE id = ?", (old["id"],))
+    photo = _insert(conn, storage, user["id"], day, "selfie", None, img)
+    conn.commit()
+    if old:
+        storage.delete(old["file_name"])
+    return photo_out(photo)
+
+
+# --- Fotos extras (publicadas numa viagem) -------------------------------------------
+
+@router.post("/trips/{trip_id}/extras")
+async def upload_extra(trip_id: int, file: UploadFile, request: Request, user=Depends(current_user),
+                       conn: sqlite3.Connection = Depends(get_conn),
+                       settings: Settings = Depends(get_settings)):
+    require_member(conn, trip_id, user["id"])
+    day = settings.today().isoformat()
+    end = conn.execute("SELECT end_date FROM trips WHERE id = ?", (trip_id,)).fetchone()[0]
+    if day > end:
+        raise HTTPException(400, "A viagem já terminou")
+    count = conn.execute(
+        "SELECT COUNT(*) FROM photos WHERE user_id = ? AND trip_id = ? AND day = ? AND kind = 'extra'",
+        (user["id"], trip_id, day)).fetchone()[0]
+    if count >= settings.extras_per_day:
+        raise HTTPException(400, f"Limite de {settings.extras_per_day} fotos extras por dia")
+    img = await _read_upload(file, settings)
+    photo = _insert(conn, request.app.state.storage, user["id"], day, "extra", trip_id, img)
+    conn.commit()
+    return photo_out(photo)
+
+
+@router.get("/trips/{trip_id}/extras")
+def list_extras(trip_id: int, day: str | None = None, user=Depends(current_user),
+                conn: sqlite3.Connection = Depends(get_conn),
+                settings: Settings = Depends(get_settings)):
+    require_member(conn, trip_id, user["id"])
+    rows = conn.execute(
+        "SELECT * FROM photos WHERE trip_id = ? AND kind = 'extra' AND day = ? ORDER BY created_at",
+        (trip_id, day or settings.today().isoformat())).fetchall()
+    return [photo_out(p) for p in rows]
+
+
+# --- Ler e apagar --------------------------------------------------------------------
+
+@router.get("/photos/{photo_id}")
+def get_photo(photo_id: int, request: Request, user=Depends(current_user),
+              conn: sqlite3.Connection = Depends(get_conn)):
+    photo = conn.execute("SELECT * FROM photos WHERE id = ?", (photo_id,)).fetchone()
+    # 404 tanto pra "não existe" quanto pra "não é pra você".
+    if photo is None or not can_view(conn, user["id"], photo):
+        raise HTTPException(404, "Foto não encontrada")
+    data = request.app.state.storage.load(photo["file_name"])  # descriptografa na memória
+    # "private": só o navegador de quem pediu guarda; nenhum proxy no meio.
+    # Uma foto nunca muda (substituir gera id novo), então pode ficar no cache.
+    return Response(data, media_type="image/jpeg",
+                    headers={"Cache-Control": "private, max-age=604800, immutable"})
+
+
+@router.delete("/photos/{photo_id}")
+def delete_photo(photo_id: int, request: Request, user=Depends(current_user),
+                 conn: sqlite3.Connection = Depends(get_conn)):
+    photo = conn.execute("SELECT * FROM photos WHERE id = ? AND user_id = ?",
+                         (photo_id, user["id"])).fetchone()
+    if photo is None:
+        raise HTTPException(404, "Foto não encontrada")
+    if photo["kind"] == "selfie":
+        # Apagar selfie quebraria a streak sem querer; pra trocar, é só tirar outra.
+        raise HTTPException(400, "A selfie do dia não pode ser apagada, só substituída")
+    conn.execute("DELETE FROM photos WHERE id = ?", (photo_id,))
+    conn.commit()
+    request.app.state.storage.delete(photo["file_name"])
+    return {"ok": True}

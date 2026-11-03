@@ -6,8 +6,10 @@ import Nav from "../components/Nav.jsx";
 export default function Home({ user }) {
   const [trips, setTrips] = useState([]);
   const [invites, setInvites] = useState([]);
+  const [today, setToday] = useState(null);
 
   function load() {
+    api("/photos/today").then(setToday);
     api("/trips").then(setTrips);
     api("/trip-invites").then(setInvites);
   }
@@ -27,6 +29,18 @@ export default function Home({ user }) {
     <main className="page stack">
       <Nav />
       <h2>Olá, {user.display_name}!</h2>
+
+      <section className="card stack">
+        <h2>Foto de hoje</h2>
+        {today?.selfie ? (
+          <>
+            <img className="thumb-large" src={today.selfie.url} alt="Sua selfie de hoje" />
+            <button className="ghost" onClick={() => navigate("/camera")}>Tirar de novo</button>
+          </>
+        ) : (
+          <button onClick={() => navigate("/camera")}>Tirar a foto de hoje</button>
+        )}
+      </section>
 
       {invites.length > 0 && (
         <section className="card stack">

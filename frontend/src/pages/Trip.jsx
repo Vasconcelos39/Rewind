@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { navigate } from "../router.jsx";
 import Nav from "../components/Nav.jsx";
 import InviteLink from "../components/InviteLink.jsx";
+import Extras from "../components/Extras.jsx";
 
 export default function Trip({ id }) {
   const [trip, setTrip] = useState(null);
@@ -39,6 +40,8 @@ export default function Trip({ id }) {
         <h2>{trip.name}</h2>
         <p className="muted">Faltam {trip.days_left} dias ({trip.end_date})</p>
       </section>
+
+      <Extras tripId={id} />
 
       <section className="card stack">
         <h2>Pessoas</h2>

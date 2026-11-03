@@ -8,19 +8,6 @@ from fastapi.testclient import TestClient
 from app import security
 
 
-@pytest.fixture
-def make_user(client, conn):
-    """Cria uma conta e devolve um cliente já logado nela."""
-    def make(username):
-        security.create_user(conn, username, f"senha-{username}", username.title())
-        c = TestClient(client.app)
-        assert c.post("/api/auth/login",
-                      json={"username": username, "password": f"senha-{username}"}).status_code == 200
-        c.user_id = c.get("/api/auth/me").json()["id"]
-        return c
-    return make
-
-
 def future(days=30):
     return (date.today() + timedelta(days=days)).isoformat()
 

@@ -7,6 +7,7 @@ import Friends from "./pages/Friends.jsx";
 import Trip from "./pages/Trip.jsx";
 import Invite from "./pages/Invite.jsx";
 import Account from "./pages/Account.jsx";
+import Camera from "./pages/Camera.jsx";
 
 export default function App() {
   // undefined = ainda perguntando ao servidor; null = não logado.
@@ -27,6 +28,7 @@ export default function App() {
 
   const trip = path.match(/^\/viagem\/(\d+)$/);
   if (trip) return <Trip id={Number(trip[1])} />;
+  if (path === "/camera") return <Camera />;
   if (path === "/amigos") return <Friends />;
   if (path === "/conta") return <Account user={user} onLogout={() => setUser(null)} />;
   return <Home user={user} />;

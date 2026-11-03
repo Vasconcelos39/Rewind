@@ -1,3 +1,4 @@
+import dataclasses
 import hashlib
 import io
 
@@ -36,7 +37,7 @@ def test_wrong_password_and_unknown_user_look_the_same(client, ana):
 
 def test_cookie_flags(settings, ana):
     # App com cookie_secure=True, como em produção.
-    app = create_app(Settings(data_dir=settings.data_dir, cookie_secure=True))
+    app = create_app(dataclasses.replace(settings, cookie_secure=True))
     r = TestClient(app).post("/api/auth/login", json=ana)
     header = r.headers["set-cookie"].lower()
     assert "httponly" in header and "secure" in header and "samesite=lax" in header
@@ -108,11 +109,11 @@ def test_frontend_cannot_escape_dist(settings, client):
     assert r.text == "<p>app</p>"
 
 
-def test_cli_create_admin(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("REWIND_DATA_DIR", str(tmp_path))
+def test_cli_create_admin(settings, monkeypatch, capsys):
+    monkeypatch.setenv("REWIND_DATA_DIR", str(settings.data_dir))
     monkeypatch.setattr(cli.sys, "stdin", io.StringIO("senha-forte-1\n"))
     cli.main(["create-admin", "--username", "bia"])
-    app = create_app(Settings(data_dir=tmp_path, cookie_secure=False))
+    app = create_app(settings)
     r = TestClient(app).post("/api/auth/login", json={"username": "bia", "password": "senha-forte-1"})
     assert r.status_code == 200 and r.json()["is_admin"]
 

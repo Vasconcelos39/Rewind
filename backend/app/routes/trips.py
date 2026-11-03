@@ -3,7 +3,7 @@
 import sqlite3
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ..config import Settings, now_iso
@@ -134,13 +134,19 @@ def decline_trip_invite(invite_id: int, user=Depends(current_user),
 
 
 @router.post("/trips/{trip_id}/leave")
-def leave_trip(trip_id: int, user=Depends(current_user), conn: sqlite3.Connection = Depends(get_conn)):
+def leave_trip(trip_id: int, request: Request, user=Depends(current_user),
+               conn: sqlite3.Connection = Depends(get_conn)):
     require_member(conn, trip_id, user["id"])
     conn.execute("DELETE FROM trip_members WHERE trip_id = ? AND user_id = ?", (trip_id, user["id"]))
     conn.execute("DELETE FROM trip_invites WHERE trip_id = ? AND from_user_id = ?", (trip_id, user["id"]))
     # O último a sair apaga a viagem (e, pelo ON DELETE CASCADE, os convites dela).
     left = conn.execute("SELECT COUNT(*) FROM trip_members WHERE trip_id = ?", (trip_id,)).fetchone()[0]
+    files = []
     if left == 0:
-        conn.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+        files = [r[0] for r in conn.execute(
+            "SELECT file_name FROM photos WHERE trip_id = ?", (trip_id,))]
+        conn.execute("DELETE FROM trips WHERE id = ?", (trip_id,))  # as linhas das fotos vão junto
     conn.commit()
+    for name in files:  # e os arquivos também, depois que o banco confirmou
+        request.app.state.storage.delete(name)
     return {"ok": True}

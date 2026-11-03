@@ -1,5 +1,9 @@
 fastapi==0.115.6
 uvicorn==0.34.0
 argon2-cffi==23.1.0
+# Upload de fotos (multipart), AES-256-GCM e processamento de imagem
+python-multipart==0.0.33
+cryptography==50.0.2
+pillow==13.0.0
 # Fusos horários no Windows (no Linux o sistema já tem, mas não atrapalha)
 tzdata==2024.2

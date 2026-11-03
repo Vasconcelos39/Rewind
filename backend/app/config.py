@@ -20,10 +20,18 @@ class Settings:
     cookie_secure: bool = True
     session_days: int = 30
     frontend_dist: Path = BACKEND_DIR.parent / "frontend" / "dist"
+    # A chave fica FORA da pasta de dados: quem levar o HDD não leva a chave junto.
+    key_file: Path = BACKEND_DIR / "rewind.key"
+    max_upload_mb: int = 10
+    extras_per_day: int = 10
 
     @property
     def db_path(self) -> Path:
         return self.data_dir / "rewind.db"
+
+    @property
+    def photos_dir(self) -> Path:
+        return self.data_dir / "photos"
 
     @property
     def tz(self) -> ZoneInfo:
@@ -43,6 +51,9 @@ class Settings:
             frontend_dist=Path(
                 os.environ.get("REWIND_FRONTEND_DIST", BACKEND_DIR.parent / "frontend" / "dist")
             ),
+            key_file=Path(os.environ.get("REWIND_KEY_FILE", BACKEND_DIR / "rewind.key")),
+            max_upload_mb=int(os.environ.get("REWIND_MAX_UPLOAD_MB", "10")),
+            extras_per_day=int(os.environ.get("REWIND_EXTRAS_PER_DAY", "10")),
         )
 
 

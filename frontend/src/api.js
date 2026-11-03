@@ -8,12 +8,17 @@ export class ApiError extends Error {
   }
 }
 
-export async function api(path, { method = "GET", body } = {}) {
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+export async function api(path, { method = "GET", body, file } = {}) {
+  let headers, payload;
+  if (file) {
+    // Upload: o navegador monta o multipart sozinho (não definir Content-Type à mão).
+    payload = new FormData();
+    payload.append("file", file, "foto.jpg");
+  } else if (body) {
+    headers = { "Content-Type": "application/json" };
+    payload = JSON.stringify(body);
+  }
+  const res = await fetch(`/api${path}`, { method, headers, body: payload });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     // FastAPI manda {detail: "..."}; erros de validação vêm como lista.

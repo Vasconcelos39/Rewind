@@ -2,6 +2,7 @@
 
     python -m app.cli create-admin --username ana
     python -m app.cli reset-password --username ana
+    python -m app.cli generate-key
 
 Sem terminal interativo, a senha é lida da entrada padrão:
     echo "minha-senha" | python -m app.cli create-admin --username ana
@@ -11,7 +12,9 @@ import argparse
 import getpass
 import sys
 
-from . import db, security
+from pathlib import Path
+
+from . import crypto, db, security
 from .config import Settings
 
 
@@ -37,8 +40,21 @@ def main(argv: list[str] | None = None) -> None:
     reset = sub.add_parser("reset-password", help="troca a senha de uma conta")
     reset.add_argument("--username", required=True)
 
+    key = sub.add_parser("generate-key", help="cria a chave de criptografia das fotos")
+    key.add_argument("--out", help="onde salvar (padrão: REWIND_KEY_FILE)")
+
     args = parser.parse_args(argv)
     settings = Settings.from_env()
+    if args.command == "generate-key":
+        path = Path(args.out) if args.out else settings.key_file
+        try:
+            crypto.generate_key_file(path)
+        except FileExistsError as e:
+            sys.exit(str(e))
+        print(f"Chave criada em {path}.")
+        print("GUARDE UMA CÓPIA FORA DO SERVIDOR: sem ela, as fotos não abrem nunca mais.")
+        return
+
     db.migrate(settings.db_path)
     conn = db.connect(settings.db_path)
     try:
