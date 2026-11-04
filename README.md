@@ -1,7 +1,7 @@
 # Rewind
 
-PWA self-hosted para um grupo de amigos tirar **uma selfie por dia** até uma data-meta
-(um casamento, uma viagem) e gerar um timelapse no final.
+PWA self-hosted para um grupo de amigos tirar **uma selfie por dia** e montar álbuns
+juntos (um casamento, uma viagem, a rotina da academia) com timelapse no final.
 
 - **Backend:** Python + FastAPI + SQLite (SQL puro, migrações em `backend/app/migrations`)
 - **Front:** React + Vite + `vite-plugin-pwa`
@@ -90,7 +90,22 @@ foto **salva** não é espelhada: é a imagem real da câmera, como os outros te
 sai igual todos os dias, e o timelapse não "pula" de lado. A foto de ontem, que aparece
 por cima pra alinhar o rosto, também é espelhada só na tela, pra bater com a prévia.
 
+## Álbuns e fotos do dia
+
+- **Foto do rosto (obrigatória):** uma por dia, tirada na hora pela câmera da frente. Só ela
+  conta pra streak.
+- **Foto de corpo (opcional):** só libera depois do rosto do dia. Abre na câmera de trás
+  (pra foto no espelho) e dá pra trocar. Uma por dia, também trocável até o dia acabar.
+- **Álbuns:** a data final é opcional. Sem ela, o álbum fica aberto ("dia 12") até alguém
+  encerrar. Qualquer membro pode renomear, pôr/tirar a data ou encerrar hoje (vira o último
+  dia). A biblioteca (`/albuns`) separa os em andamento dos encerrados.
+- **Instalar:** em Conta › Instalar o app. No Android/Chrome é um botão; no iPhone, pelo
+  menu Compartilhar do Safari. Só funciona com HTTPS.
+
 ## Timelapse
+
+- Cada pessoa tem **dois** timelapses por álbum: o do rosto e o do corpo. Misturar os dois
+  no mesmo vídeo faria a imagem "pular".
 
 - Qualquer membro da viagem pede o timelapse de qualquer pessoa dela. O vídeo usa as
   selfies do período da viagem, a 8 fotos/s (dá pra escolher 4, 8, 12 ou 24).

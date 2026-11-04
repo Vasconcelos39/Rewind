@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api.js";
 import { navigate } from "../router.jsx";
 import Nav from "../components/Nav.jsx";
+import InstallApp from "../components/InstallApp.jsx";
 
 export default function Account({ user, onLogout }) {
   async function logout() {
@@ -18,6 +19,7 @@ export default function Account({ user, onLogout }) {
         <p className="muted">@{user.username}</p>
         <button className="ghost" onClick={logout}>Sair</button>
       </section>
+      <InstallApp />
       <ChangePassword />
     </main>
   );

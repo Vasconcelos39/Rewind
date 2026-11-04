@@ -49,54 +49,80 @@ def can_view(conn: sqlite3.Connection, viewer_id: int, photo: sqlite3.Row) -> bo
     if photo["user_id"] == viewer_id:
         return True
     if photo["kind"] == "extra":
-        # Foto extra: qualquer membro da viagem onde ela foi publicada.
+        # Foto extra: qualquer membro do álbum onde ela foi publicada.
         return conn.execute("SELECT 1 FROM trip_members WHERE trip_id = ? AND user_id = ?",
                             (photo["trip_id"], viewer_id)).fetchone() is not None
-    # Selfie: você e o dono estão numa mesma viagem, e o dia da foto está no período
+    # Rosto e corpo: você e o dono estão num mesmo álbum, e o dia da foto está no período
     # dela (do dia em que o dono entrou até a data final). Amigo fora da viagem não vê.
     return conn.execute(
         "SELECT 1 FROM trip_members owner"
         " JOIN trip_members viewer ON viewer.trip_id = owner.trip_id AND viewer.user_id = ?"
         " JOIN trips t ON t.id = owner.trip_id"
-        " WHERE owner.user_id = ? AND ? BETWEEN owner.joined_day AND t.end_date",
+        " WHERE owner.user_id = ? AND ? BETWEEN owner.joined_day AND COALESCE(t.end_date, '9999-12-31')",
         (viewer_id, photo["user_id"], photo["day"])).fetchone() is not None
 
 
-# --- Selfie do dia ---------------------------------------------------------------
+# --- Fotos do dia: rosto (obrigatória) e corpo (opcional, depois do rosto) -----------
+
+def _daily_photo(conn, user_id: int, kind: str, day: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM photos WHERE user_id = ? AND kind = ? AND day = ?",
+                        (user_id, kind, day)).fetchone()
+
+
+def _previous(conn, user_id: int, kind: str, day: str) -> sqlite3.Row | None:
+    """A última foto desse tipo antes de hoje: a que aparece por cima da câmera."""
+    return conn.execute(
+        "SELECT * FROM photos WHERE user_id = ? AND kind = ? AND day < ? ORDER BY day DESC LIMIT 1",
+        (user_id, kind, day)).fetchone()
+
 
 @router.get("/photos/today")
 def today(user=Depends(current_user), conn: sqlite3.Connection = Depends(get_conn),
           settings: Settings = Depends(get_settings)):
-    """A selfie de hoje (se já tirou) e a anterior, que aparece por cima da câmera."""
+    """As fotos de hoje (se já tirou) e as anteriores de cada tipo."""
     day = settings.today().isoformat()
-    mine = conn.execute("SELECT * FROM photos WHERE user_id = ? AND kind = 'selfie' AND day = ?",
-                        (user["id"], day)).fetchone()
-    prev = conn.execute(
-        "SELECT * FROM photos WHERE user_id = ? AND kind = 'selfie' AND day < ? ORDER BY day DESC LIMIT 1",
-        (user["id"], day)).fetchone()
-    return {"day": day, "selfie": photo_out(mine) if mine else None,
-            "previous": photo_out(prev) if prev else None}
+    out = lambda p: photo_out(p) if p else None
+    return {
+        "day": day,
+        "selfie": out(_daily_photo(conn, user["id"], "selfie", day)),
+        "previous": out(_previous(conn, user["id"], "selfie", day)),
+        "body": out(_daily_photo(conn, user["id"], "body", day)),
+        "previous_body": out(_previous(conn, user["id"], "body", day)),
+    }
+
+
+async def _upload_daily(kind: str, file: UploadFile, request: Request, user, conn, settings) -> dict:
+    # O dia é o do servidor: mudar o relógio do celular não muda nada.
+    day = settings.today().isoformat()
+    if kind == "body" and _daily_photo(conn, user["id"], "selfie", day) is None:
+        # Regra do Rewind: o rosto vem primeiro. Ele é o que conta pra streak.
+        raise HTTPException(400, "Tire primeiro a foto do rosto de hoje")
+    img = await _read_upload(file, settings)
+    storage = request.app.state.storage
+    old = _daily_photo(conn, user["id"], kind, day)
+    if old:
+        # Substituir enquanto o dia não acabou: sai a antiga, entra a nova (com id novo,
+        # assim o navegador não mostra a antiga do cache).
+        conn.execute("DELETE FROM photos WHERE id = ?", (old["id"],))
+    photo = _insert(conn, storage, user["id"], day, kind, None, img)
+    conn.commit()
+    if old:
+        storage.delete(old["file_name"])
+    return photo_out(photo)
 
 
 @router.post("/photos/selfie")
 async def upload_selfie(file: UploadFile, request: Request, user=Depends(current_user),
                         conn: sqlite3.Connection = Depends(get_conn),
                         settings: Settings = Depends(get_settings)):
-    img = await _read_upload(file, settings)
-    storage = request.app.state.storage
-    # O dia é o do servidor: mudar o relógio do celular não muda nada.
-    day = settings.today().isoformat()
-    old = conn.execute("SELECT * FROM photos WHERE user_id = ? AND kind = 'selfie' AND day = ?",
-                       (user["id"], day)).fetchone()
-    if old:
-        # Substituir enquanto o dia não acabou: sai a antiga, entra a nova (com id novo,
-        # assim o navegador não mostra a antiga do cache).
-        conn.execute("DELETE FROM photos WHERE id = ?", (old["id"],))
-    photo = _insert(conn, storage, user["id"], day, "selfie", None, img)
-    conn.commit()
-    if old:
-        storage.delete(old["file_name"])
-    return photo_out(photo)
+    return await _upload_daily("selfie", file, request, user, conn, settings)
+
+
+@router.post("/photos/body")
+async def upload_body(file: UploadFile, request: Request, user=Depends(current_user),
+                      conn: sqlite3.Connection = Depends(get_conn),
+                      settings: Settings = Depends(get_settings)):
+    return await _upload_daily("body", file, request, user, conn, settings)
 
 
 # --- Fotos extras (publicadas numa viagem) -------------------------------------------
@@ -108,8 +134,8 @@ async def upload_extra(trip_id: int, file: UploadFile, request: Request, user=De
     require_member(conn, trip_id, user["id"])
     day = settings.today().isoformat()
     end = conn.execute("SELECT end_date FROM trips WHERE id = ?", (trip_id,)).fetchone()[0]
-    if day > end:
-        raise HTTPException(400, "A viagem já terminou")
+    if end is not None and day > end:  # sem data final, o álbum nunca encerra sozinho
+        raise HTTPException(400, "Esse álbum já foi encerrado")
     count = conn.execute(
         "SELECT COUNT(*) FROM photos WHERE user_id = ? AND trip_id = ? AND day = ? AND kind = 'extra'",
         (user["id"], trip_id, day)).fetchone()[0]
@@ -134,12 +160,13 @@ def list_extras(trip_id: int, day: str | None = None, user=Depends(current_user)
 
 # --- Galeria da viagem ---------------------------------------------------------------
 
-# As selfies que pertencem à viagem: de cada membro, do dia em que entrou até a data final.
+# As fotos do dia (rosto e corpo) que pertencem ao álbum: de cada membro, do dia em
+# que entrou até a data final.
 _TRIP_SELFIES = (
     "SELECT p.* FROM photos p"
     " JOIN trip_members m ON m.user_id = p.user_id AND m.trip_id = :trip"
     " JOIN trips t ON t.id = m.trip_id"
-    " WHERE p.kind = 'selfie' AND p.day BETWEEN m.joined_day AND t.end_date"
+    " WHERE p.kind IN ('selfie', 'body') AND p.day BETWEEN m.joined_day AND COALESCE(t.end_date, '9999-12-31')"
 )
 _TRIP_EXTRAS = "SELECT p.* FROM photos p WHERE p.kind = 'extra' AND p.trip_id = :trip"
 
@@ -163,9 +190,10 @@ def gallery(trip_id: int, before: str | None = None, days: int = 14, user_id: in
 
     rows = conn.execute(f"SELECT * FROM ({union}) WHERE day >= :oldest ORDER BY created_at",
                         {**params, "oldest": day_list[-1]}).fetchall()
-    grouped = {d: {"day": d, "selfies": [], "extras": []} for d in day_list}
+    grouped = {d: {"day": d, "selfies": [], "bodies": [], "extras": []} for d in day_list}
+    bucket = {"selfie": "selfies", "body": "bodies", "extra": "extras"}
     for p in rows:
-        grouped[p["day"]]["selfies" if p["kind"] == "selfie" else "extras"].append(photo_out(p))
+        grouped[p["day"]][bucket[p["kind"]]].append(photo_out(p))
     return {"days": list(grouped.values()), "next_before": day_list[-1]}
 
 

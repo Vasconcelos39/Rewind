@@ -11,8 +11,17 @@ function savedOpacity() {
   }
 }
 
-export default function Camera() {
+const MODES = {
+  // Rosto: câmera da frente, contorno oval. Obrigatória, conta pra streak.
+  selfie: { title: "Foto do rosto", facing: "user", previousKey: "previous", endpoint: "/photos/selfie" },
+  // Corpo: opcional, depois do rosto. Começa na câmera de trás, pra foto no espelho.
+  body: { title: "Foto de corpo", facing: "environment", previousKey: "previous_body", endpoint: "/photos/body" },
+};
+
+export default function Camera({ kind = "selfie" }) {
+  const mode = MODES[kind];
   const videoRef = useRef(null);
+  const [facing, setFacing] = useState(mode.facing);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const [previous, setPrevious] = useState(null);
@@ -20,20 +29,37 @@ export default function Camera() {
   const [shot, setShot] = useState(null); // { blob, url } depois de tirar
   const [sending, setSending] = useState(false);
 
-  // Liga a câmera frontal ao abrir a tela e desliga ao sair.
+  // A foto de referência (a última desse tipo) que aparece por cima.
+  useEffect(() => {
+    api("/photos/today").then((t) => setPrevious(t[mode.previousKey])).catch(() => {});
+  }, [kind]);
+
+  // Liga a câmera ao abrir a tela (e ao trocar de câmera) e desliga ao sair.
   useEffect(() => {
     let stream;
+    let closed = false; // a tela pode fechar antes da permissão da câmera responder
+    setReady(false);
+    if (!navigator.mediaDevices) {
+      setError("Este navegador não dá acesso à câmera (precisa de HTTPS).");
+      return;
+    }
     navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1920 } }, audio: false })
+      .getUserMedia({ video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1920 } }, audio: false })
       .then((s) => {
         stream = s;
+        // Saiu da tela antes da câmera abrir: desliga na hora, senão a luz fica acesa.
+        if (closed || !videoRef.current) return s.getTracks().forEach((t) => t.stop());
         videoRef.current.srcObject = s;
       })
-      .catch(() => setError("Não consegui abrir a câmera. Confira a permissão do navegador."));
-    if (!navigator.mediaDevices) setError("Este navegador não dá acesso à câmera (precisa de HTTPS).");
-    api("/photos/today").then((t) => setPrevious(t.previous));
-    return () => stream?.getTracks().forEach((t) => t.stop());
-  }, []);
+      .catch(() => !closed && setError("Não consegui abrir a câmera. Confira a permissão do navegador."));
+    return () => {
+      closed = true;
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, [facing]);
+
+  // Libera a memória da prévia quando ela é trocada ou a tela fecha.
+  useEffect(() => () => shot && URL.revokeObjectURL(shot.url), [shot]);
 
   useEffect(() => {
     try { localStorage.setItem("overlayOpacity", String(opacity)); } catch {}
@@ -44,15 +70,10 @@ export default function Camera() {
     setShot({ blob, url: URL.createObjectURL(blob) });
   }
 
-  function retake() {
-    URL.revokeObjectURL(shot.url);
-    setShot(null);
-  }
-
   async function send() {
     setSending(true);
     try {
-      await api("/photos/selfie", { method: "POST", file: shot.blob });
+      await api(mode.endpoint, { method: "POST", file: shot.blob });
       navigate("/");
     } catch (e) {
       setError(e.message);
@@ -60,37 +81,38 @@ export default function Camera() {
     }
   }
 
+  // Só a câmera da frente aparece espelhada (como um espelho). A foto salva nunca é
+  // espelhada; por isso a de referência só é espelhada quando a prévia também é.
+  const mirrored = facing === "user" ? "mirrored" : "";
+
   return (
     <main className="page stack">
       <header className="row">
-        <h2>Foto de hoje</h2>
+        <h2>{mode.title}</h2>
         <button className="ghost" onClick={() => navigate("/")}>Voltar</button>
       </header>
 
       {error && <p className="error">{error}</p>}
 
       <div className="camera-box">
-        {shot ? (
-          // A foto como foi salva: sem espelho, como os outros te veem.
-          <img src={shot.url} alt="Sua selfie" />
-        ) : (
-          <>
-            <video ref={videoRef} className="mirrored" autoPlay playsInline muted
-              onLoadedMetadata={() => setReady(true)} />
-            {previous && (
-              // A foto de ontem foi salva sem espelho; espelhamos aqui pra bater com o preview.
-              <img src={previous.url} className="mirrored overlay" style={{ opacity }} alt="" />
-            )}
-            <svg className="face-guide" viewBox="0 0 300 400" aria-hidden="true">
-              <ellipse cx="150" cy="185" rx="92" ry="125" />
-            </svg>
-          </>
+        {/* O vídeo fica sempre montado (só some atrás da prévia). Se ele saísse da tela,
+            o "Tirar outra" voltaria com a câmera preta: o elemento novo não tem o stream. */}
+        <video ref={videoRef} className={mirrored} autoPlay playsInline muted
+          onLoadedMetadata={() => setReady(true)} hidden={!!shot} />
+        {!shot && previous && (
+          <img src={previous.url} className={`${mirrored} overlay`} style={{ opacity }} alt="" />
         )}
+        {!shot && kind === "selfie" && (
+          <svg className="face-guide" viewBox="0 0 300 400" aria-hidden="true">
+            <ellipse cx="150" cy="185" rx="92" ry="125" />
+          </svg>
+        )}
+        {shot && <img src={shot.url} alt="Sua foto, como ela vai ficar salva" />}
       </div>
 
       {shot ? (
         <div className="row">
-          <button className="ghost" onClick={retake} disabled={sending}>Tirar outra</button>
+          <button className="ghost" onClick={() => setShot(null)} disabled={sending}>Tirar outra</button>
           <button onClick={send} disabled={sending}>{sending ? "Enviando…" : "Enviar"}</button>
         </div>
       ) : (
@@ -102,7 +124,19 @@ export default function Camera() {
                 onChange={(e) => setOpacity(Number(e.target.value))} />
             </label>
           )}
-          <button onClick={take} disabled={!ready}>Tirar foto</button>
+          <div className="row">
+            {kind === "body" && (
+              <button className="ghost" onClick={() => setFacing(facing === "user" ? "environment" : "user")}>
+                {facing === "user" ? "Usar câmera de trás" : "Usar câmera da frente"}
+              </button>
+            )}
+            <button onClick={take} disabled={!ready}>Tirar foto</button>
+          </div>
+          {kind === "body" && (
+            <p className="muted small">
+              Dica: use sempre o mesmo espelho e a mesma distância. O timelapse de corpo fica bem melhor.
+            </p>
+          )}
         </>
       )}
     </main>

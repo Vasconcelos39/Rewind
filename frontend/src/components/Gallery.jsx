@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 
-// Fotos da viagem por dia (mais novo primeiro), carregando aos poucos.
+// Fotos do álbum por dia (mais novo primeiro), carregando aos poucos.
 export default function Gallery({ tripId, members }) {
   const [days, setDays] = useState([]);
   const [next, setNext] = useState(null);
@@ -35,6 +35,9 @@ export default function Gallery({ tripId, members }) {
           <div className="grid">
             {d.selfies.map((p) => (
               <img key={p.id} src={p.url} alt={`Selfie de ${names[p.user_id] ?? ""}`} title={names[p.user_id]} loading="lazy" />
+            ))}
+            {d.bodies.map((p) => (
+              <img key={p.id} src={p.url} alt={`Foto de corpo de ${names[p.user_id] ?? ""}`} title={names[p.user_id]} loading="lazy" />
             ))}
             {d.extras.map((p) => (
               <img key={p.id} src={p.url} alt={`Foto extra de ${names[p.user_id] ?? ""}`} title={names[p.user_id]} loading="lazy" />

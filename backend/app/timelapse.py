@@ -24,18 +24,19 @@ from .storage import Storage
 WIDTH, HEIGHT = 720, 960  # 3:4, o mesmo formato das selfies
 
 
-def trip_selfies(conn: sqlite3.Connection, trip_id: int, user_id: int) -> list[sqlite3.Row]:
-    """As selfies da pessoa que valem pra essa viagem, em ordem de dia."""
+def trip_selfies(conn: sqlite3.Connection, trip_id: int, user_id: int, kind: str = "selfie") -> list[sqlite3.Row]:
+    """As fotos do dia da pessoa (rosto ou corpo) que valem pro álbum, em ordem de dia."""
     return conn.execute(
         "SELECT p.* FROM photos p"
         " JOIN trip_members m ON m.user_id = p.user_id AND m.trip_id = ?"
         " JOIN trips t ON t.id = m.trip_id"
-        " WHERE p.user_id = ? AND p.kind = 'selfie' AND p.day BETWEEN m.joined_day AND t.end_date"
-        " ORDER BY p.day", (trip_id, user_id)).fetchall()
+        " WHERE p.user_id = ? AND p.kind = ? AND p.day BETWEEN m.joined_day AND COALESCE(t.end_date, '9999-12-31')"
+        " ORDER BY p.day", (trip_id, user_id, kind)).fetchall()
 
 
 def fingerprint(photos: list[sqlite3.Row], fps: int) -> str:
-    # Cada foto nova (ou substituída) tem id novo, então a lista de ids basta.
+    # Cada foto nova (ou substituída) tem id novo, então a lista de ids basta
+    # (e ids de rosto e de corpo nunca se repetem, então o tipo já está embutido).
     ids = ",".join(str(p["id"]) for p in photos)
     return hashlib.sha256(f"{fps}|{ids}".encode()).hexdigest()
 
@@ -57,7 +58,7 @@ def _ffmpeg_cmd(settings: Settings, frames_dir: Path, fps: int, out: Path) -> li
 
 def render(settings: Settings, storage: Storage, conn: sqlite3.Connection, job: sqlite3.Row) -> str:
     """Gera o vídeo de um pedido. Devolve o nome do arquivo criptografado."""
-    photos = trip_selfies(conn, job["trip_id"], job["user_id"])
+    photos = trip_selfies(conn, job["trip_id"], job["user_id"], job["kind"])
     total = len(photos)
     settings.tmp_dir.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="rewind-", dir=settings.tmp_dir))
@@ -89,8 +90,13 @@ def process_next(settings: Settings, storage: Storage) -> bool:
             "SELECT * FROM timelapses WHERE status = 'queued' ORDER BY id LIMIT 1").fetchone()
         if job is None:
             return False
-        conn.execute("UPDATE timelapses SET status = 'running', progress = 0 WHERE id = ?", (job["id"],))
+        # "Reserva" o pedido só se ele ainda estiver na fila: entre o SELECT e aqui alguém
+        # pode ter apagado (pediu de novo com foto nova, ou o álbum foi apagado).
+        claimed = conn.execute("UPDATE timelapses SET status = 'running', progress = 0"
+                               " WHERE id = ? AND status = 'queued'", (job["id"],)).rowcount
         conn.commit()
+        if not claimed:
+            return True
         try:
             name = render(settings, storage, conn, job)
         except Exception as e:  # erro num vídeo não pode derrubar a fila
@@ -98,10 +104,12 @@ def process_next(settings: Settings, storage: Storage) -> bool:
                          (str(e)[:500], now_iso(), job["id"]))
             conn.commit()
             return True
-        conn.execute(
+        saved = conn.execute(
             "UPDATE timelapses SET status = 'done', progress = 1, file_name = ?, finished_at = ? WHERE id = ?",
-            (name, now_iso(), job["id"]))
+            (name, now_iso(), job["id"])).rowcount
         conn.commit()
+        if not saved:
+            storage.delete(name)  # o pedido sumiu enquanto o vídeo era feito: não deixa arquivo órfão
         return True
     finally:
         conn.close()

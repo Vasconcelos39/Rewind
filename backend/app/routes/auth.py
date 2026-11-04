@@ -75,8 +75,14 @@ def me(user: sqlite3.Row = Depends(current_user)):
 def change_password(body: PasswordIn, request: Request,
                     user: sqlite3.Row = Depends(current_user),
                     conn: sqlite3.Connection = Depends(get_conn)):
+    # Mesmo limite do login: quem pega um celular logado não fica chutando a senha atual.
+    limit, key = request.app.state.limits["login_user"], user["username"].lower()
+    if limit.blocked(key):
+        raise HTTPException(429, "Muitas tentativas. Espere alguns minutos.")
     if security.authenticate(conn, user["username"], body.current_password) is None:
+        limit.hit(key)
         raise HTTPException(400, "Senha atual incorreta")
+    limit.reset(key)
     try:
         security.set_password(conn, user["id"], body.new_password)
     except security.InvalidInput as e:

@@ -5,6 +5,7 @@ export default function Nav() {
     <header className="row">
       <Link to="/" className="brand"><h1>Rewind</h1></Link>
       <nav className="row">
+        <Link to="/albuns">Álbuns</Link>
         <Link to="/amigos">Amigos</Link>
         <Link to="/conta">Conta</Link>
       </nav>

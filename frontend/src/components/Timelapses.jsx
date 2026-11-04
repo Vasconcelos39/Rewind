@@ -2,17 +2,21 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 
 const FPS_OPTIONS = [4, 8, 12, 24];
+const KINDS = [["selfie", "Rosto"], ["body", "Corpo"]];
+const keyOf = (j) => `${j.user_id}:${j.kind}`;
 
-// Um timelapse por pessoa da viagem. Pedir entra numa fila; a tela vai
-// perguntando o progresso até o vídeo ficar pronto.
+// Um timelapse por pessoa do álbum, de rosto ou de corpo (cada um é um vídeo).
+// Pedir entra numa fila; a tela vai perguntando o progresso até o vídeo ficar pronto.
 export default function Timelapses({ tripId, members }) {
-  const [jobs, setJobs] = useState({}); // user_id -> pedido mais recente
+  const [jobs, setJobs] = useState({}); // "user_id:kind" -> pedido mais recente
+  const [kind, setKind] = useState("selfie");
   const [fps, setFps] = useState(8);
   const [error, setError] = useState("");
 
+  const merge = (list) => setJobs((old) => ({ ...old, ...Object.fromEntries(list.map((j) => [keyOf(j), j])) }));
+
   useEffect(() => {
-    api(`/trips/${tripId}/timelapses`).then((list) =>
-      setJobs(Object.fromEntries(list.map((j) => [j.user_id, j]))));
+    api(`/trips/${tripId}/timelapses`).then(merge).catch(() => {});
   }, [tripId]);
 
   // Enquanto houver vídeo na fila ou rodando, pergunta de novo a cada 1,5 s.
@@ -20,8 +24,14 @@ export default function Timelapses({ tripId, members }) {
   useEffect(() => {
     if (pending.length === 0) return;
     const timer = setTimeout(async () => {
-      const fresh = await Promise.all(pending.map((j) => api(`/timelapses/${j.id}`)));
-      setJobs((old) => ({ ...old, ...Object.fromEntries(fresh.map((j) => [j.user_id, j])) }));
+      // allSettled e não all: se um pedido sumiu (alguém pediu de novo com foto nova),
+      // os outros continuam atualizando, e a lista é recarregada pra pegar o novo.
+      const results = await Promise.allSettled(pending.map((j) => api(`/timelapses/${j.id}`)));
+      const fresh = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+      if (fresh.length < results.length) {
+        fresh.push(...(await api(`/trips/${tripId}/timelapses`).catch(() => [])));
+      }
+      merge(fresh);
     }, 1500);
     return () => clearTimeout(timer);
   }, [jobs]);
@@ -29,8 +39,7 @@ export default function Timelapses({ tripId, members }) {
   async function generate(userId) {
     setError("");
     try {
-      const job = await api(`/trips/${tripId}/timelapses`, { method: "POST", body: { user_id: userId, fps } });
-      setJobs((old) => ({ ...old, [userId]: job }));
+      merge([await api(`/trips/${tripId}/timelapses`, { method: "POST", body: { user_id: userId, fps, kind } })]);
     } catch (e) {
       setError(e.message);
     }
@@ -44,9 +53,16 @@ export default function Timelapses({ tripId, members }) {
           {FPS_OPTIONS.map((f) => <option key={f} value={f}>{f} fotos/s</option>)}
         </select>
       </div>
+      <div className="segmented" role="group" aria-label="Tipo de foto">
+        {KINDS.map(([value, label]) => (
+          <button key={value} type="button" aria-pressed={kind === value} onClick={() => setKind(value)}>
+            {label}
+          </button>
+        ))}
+      </div>
       {error && <p className="error">{error}</p>}
       {members.map((m) => {
-        const job = jobs[m.id];
+        const job = jobs[`${m.id}:${kind}`];
         return (
           <div key={m.id} className="stack list-item">
             <div className="row">

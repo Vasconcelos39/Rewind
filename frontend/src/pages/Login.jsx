@@ -37,6 +37,10 @@ export default function Login({ onLogin }) {
         </label>
         {error && <p className="error" role="alert">{error}</p>}
         <button disabled={busy}>{busy ? "Entrando…" : "Entrar"}</button>
+        <p className="muted small">
+          Não tem conta? O Rewind é só por convite: peça um link pra quem já usa.
+          Esqueceu a senha? Peça pro admin trocar.
+        </p>
       </form>
     </main>
   );

@@ -45,14 +45,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # --- Proteções que valem pra todas as rotas -------------------------------
 
+    max_body = (settings.max_upload_mb + 1) * 1024 * 1024  # a foto + folga pro resto do formulário
+
     @app.middleware("http")
     async def protections(request: Request, call_next):
         # Contra CSRF: um site de fora não pode mandar POST/PUT/DELETE pra cá usando o
         # seu cookie. O cookie SameSite=Lax já barra isso; o Origin é uma segunda trava.
+        # Comparamos só o nome do site, sem a porta: o Nginx Proxy Manager repassa o Host
+        # sem a porta (https://site:8443 chega aqui como "site").
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
-            if origin and urlsplit(origin).netloc != request.headers.get("host"):
+            host = urlsplit("//" + request.headers.get("host", "")).hostname
+            if origin and urlsplit(origin).hostname != host:
                 return JSONResponse({"detail": "Origem não permitida"}, status_code=403)
+            # Recusa upload gigante ANTES de ler: senão o servidor gravaria tudo em disco
+            # (arquivo temporário) só pra descobrir depois que passou do limite.
+            length = request.headers.get("content-length", "")
+            if length.isdigit() and int(length) > max_body:
+                return JSONResponse({"detail": f"Arquivo maior que {settings.max_upload_mb} MB"},
+                                    status_code=413)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"

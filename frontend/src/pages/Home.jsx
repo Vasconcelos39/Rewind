@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Link, navigate } from "../router.jsx";
 import Nav from "../components/Nav.jsx";
+import InstallApp from "../components/InstallApp.jsx";
+import { AlbumRow } from "./Albums.jsx";
 
 export default function Home({ user }) {
   const [trips, setTrips] = useState([]);
@@ -24,7 +26,7 @@ export default function Home({ user }) {
   async function respond(invite, accept) {
     if (accept) {
       const { trip_id } = await api(`/trip-invites/${invite.id}/accept`, { method: "POST" });
-      navigate(`/viagem/${trip_id}`);
+      navigate(`/album/${trip_id}`);
     } else {
       await api(`/trip-invites/${invite.id}`, { method: "DELETE" });
       load();
@@ -58,8 +60,17 @@ export default function Home({ user }) {
         )}
         {today?.selfie ? (
           <>
-            <img className="thumb-large" src={today.selfie.url} alt="Sua selfie de hoje" />
-            <button className="ghost" onClick={() => navigate("/camera")}>Tirar de novo</button>
+            <div className="today-pair">
+              <img className="thumb-large" src={today.selfie.url} alt="Sua selfie de hoje" />
+              {today.body && <img className="thumb-large" src={today.body.url} alt="Sua foto de corpo de hoje" />}
+            </div>
+            <div className="row">
+              <button className="ghost" onClick={() => navigate("/camera")}>Refazer o rosto</button>
+              {/* O corpo é opcional e só libera depois do rosto. */}
+              <button className={today.body ? "ghost" : ""} onClick={() => navigate("/camera/corpo")}>
+                {today.body ? "Refazer o corpo" : "Foto de corpo (opcional)"}
+              </button>
+            </div>
           </>
         ) : (
           <button onClick={() => navigate("/camera")}>Tirar a foto de hoje</button>
@@ -71,7 +82,7 @@ export default function Home({ user }) {
           <h2>Convites</h2>
           {invites.map((i) => (
             <div key={i.id} className="row">
-              <span>{i.from.display_name} te chamou para <b>{i.trip_name}</b></span>
+              <span>{i.from.display_name} te chamou pro álbum <b>{i.trip_name}</b></span>
               <span className="row">
                 <button onClick={() => respond(i, true)}>Entrar</button>
                 <button className="ghost" onClick={() => respond(i, false)}>Recusar</button>
@@ -82,43 +93,19 @@ export default function Home({ user }) {
       )}
 
       <section className="card stack">
-        <h2>Suas viagens</h2>
-        {trips.length === 0 && <p className="muted">Nenhuma viagem ainda.</p>}
-        {trips.map((t) => (
-          <Link key={t.id} to={`/viagem/${t.id}`} className="row list-item">
-            <span>{t.name}</span>
-            <span className="muted">{t.days_left} dias · {t.member_count} pessoas</span>
-          </Link>
-        ))}
+        <div className="row">
+          <h2>Álbuns abertos</h2>
+          <Link to="/albuns" className="small">Ver todos</Link>
+        </div>
+        {trips.filter((t) => t.status === "active").map((t) => <AlbumRow key={t.id} album={t} />)}
+        {trips.every((t) => t.status !== "active") && (
+          <p className="muted">Nenhum álbum aberto.</p>
+        )}
+        <button className="ghost" onClick={() => navigate("/albuns")}>Novo álbum</button>
       </section>
 
-      <NewTrip onCreated={(t) => navigate(`/viagem/${t.id}`)} />
+      <InstallApp compact />
     </main>
-  );
-}
-
-function NewTrip({ onCreated }) {
-  const [name, setName] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [error, setError] = useState("");
-
-  async function submit(e) {
-    e.preventDefault();
-    try {
-      onCreated(await api("/trips", { method: "POST", body: { name, end_date: endDate } }));
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  return (
-    <form className="card stack" onSubmit={submit}>
-      <h2>Nova viagem</h2>
-      <label>Nome<input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required /></label>
-      <label>Data final (a meta)<input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required /></label>
-      {error && <p className="error">{error}</p>}
-      <button>Criar</button>
-    </form>
   );
 }
 

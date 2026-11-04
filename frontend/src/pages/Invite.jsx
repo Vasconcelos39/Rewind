@@ -13,7 +13,7 @@ export default function Invite({ token, user, onUser }) {
   }, [token]);
 
   function done(tripId) {
-    navigate(tripId ? `/viagem/${tripId}` : "/amigos");
+    navigate(tripId ? `/album/${tripId}` : "/amigos");
   }
 
   async function acceptLoggedIn() {

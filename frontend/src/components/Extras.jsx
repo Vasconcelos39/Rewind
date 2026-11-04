@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { resizeFile } from "../lib/image.js";
 
-// Fotos extras do dia nesta viagem. Podem vir da galeria e não contam pra streak.
+// Fotos extras do dia neste álbum. Podem vir da galeria e não contam pra streak.
 export default function Extras({ tripId }) {
   const [photos, setPhotos] = useState([]);
   const [error, setError] = useState("");

@@ -137,3 +137,9 @@ input[type="range"] { padding: 0; accent-color: var(--accent); }
 select { font: inherit; font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-small); padding: 10px; }
 progress { width: 100%; accent-color: var(--accent); }
 .timelapse { width: 100%; max-width: 360px; border-radius: var(--radius-small); background: #000; }
+.toggle { flex-direction: row; align-items: center; gap: 10px; color: var(--text); font-size: 15px; min-height: 44px; }
+.toggle input { width: 22px; height: 22px; accent-color: var(--accent); }
+.today-pair { display: flex; gap: 10px; }
+.today-pair .thumb-large { width: calc(50% - 5px); max-width: 200px; aspect-ratio: 3 / 4; object-fit: cover; }
+.segmented { display: flex; gap: 6px; }
+.segmented button[aria-pressed="false"] { background: transparent; color: var(--muted); border: 1px solid var(--border); }
